@@ -1,0 +1,84 @@
+{
+    "joint_angles": {
+        "Left Shoulder": [
+            "LEFT_HIP",
+            "LEFT_SHOULDER",
+            "LEFT_ELBOW"
+        ],
+        "Right Shoulder": [
+            "RIGHT_HIP",
+            "RIGHT_SHOULDER",
+            "RIGHT_ELBOW"
+        ],
+        "Left Elbow": [
+            "LEFT_SHOULDER",
+            "LEFT_ELBOW",
+            "LEFT_WRIST"
+        ],
+        "Right Elbow": [
+            "RIGHT_SHOULDER",
+            "RIGHT_ELBOW",
+            "RIGHT_WRIST"
+        ],
+        "Left Wrist": [
+            "LEFT_ELBOW",
+            "LEFT_WRIST",
+            "LEFT_PINKY"
+        ],
+        "Right Wrist": [
+            "RIGHT_ELBOW",
+            "RIGHT_WRIST",
+            "RIGHT_PINKY"
+        ],
+        "Left Hip": [
+            "LEFT_SHOULDER",
+            "LEFT_HIP",
+            "LEFT_KNEE"
+        ],
+        "Right Hip": [
+            "RIGHT_SHOULDER",
+            "RIGHT_HIP",
+            "RIGHT_KNEE"
+        ],
+        "Left Knee": [
+            "LEFT_HIP",
+            "LEFT_KNEE",
+            "LEFT_ANKLE"
+        ],
+        "Right Knee": [
+            "RIGHT_HIP",
+            "RIGHT_KNEE",
+            "RIGHT_ANKLE"
+        ],
+        "Left Ankle": [
+            "LEFT_KNEE",
+            "LEFT_ANKLE",
+            "LEFT_HEEL"
+        ],
+        "Right Ankle": [
+            "RIGHT_KNEE",
+            "RIGHT_ANKLE",
+            "RIGHT_HEEL"
+        ]
+    },
+    "joint_positions": [
+        "LEFT_SHOULDER",
+        "RIGHT_SHOULDER",
+        "LEFT_ELBOW",
+        "RIGHT_ELBOW",
+        "LEFT_WRIST",
+        "RIGHT_WRIST",
+        "LEFT_PINKY",
+        "RIGHT_PINKY",
+        "LEFT_HIP",
+        "RIGHT_HIP",
+        "LEFT_KNEE",
+        "RIGHT_KNEE",
+        "LEFT_ANKLE",
+        "RIGHT_ANKLE",
+        "LEFT_HEEL",
+        "RIGHT_HEEL",
+        "LEFT_FOOT",
+        "RIGHT_FOOT"
+    ]
+}
