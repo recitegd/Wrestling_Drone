@@ -1,4 +1,6 @@
 import asyncio
+from ai_handler import AiHandler
+from media_pipe_handler import MediaPipeHandler
 import speech_recognition as sr
 import edge_tts as tts
 import pyaudio
@@ -11,8 +13,10 @@ AudioSegment.ffprobe = "ffprobe"
 recognizer = sr.Recognizer()
 listen_and_speak = True
 VOICE = "en-US-AndrewNeural"
+api = AiHandler()
+mp_handler = MediaPipeHandler()
 
-def listen():
+async def listen():
     while listen_and_speak:
         response = ""
         with sr.Microphone() as source:
@@ -23,13 +27,19 @@ def listen():
 
             try:
                 text = recognizer.recognize_google(audio)
-                response = f"You said: {text}"
-                print(response)
+                prompt = mp_handler.create_request()
+                if not prompt:
+                    await speak("I cannot see you right now.")
+                    continue
+                text += prompt
+                response = await api.query(text)
+                await speak(response)
             except sr.UnknownValueError:
                 response = "Could not recognize speech."
-                print(response)
+                await speak(response)
             except sr.RequestError as e:
                 response = f"Could not request results: {e}"
+                await speak(response)
                 print(response)
 
 #edge_tts produces mp3, pyaudio needs pcm, so there's a conversion
@@ -53,4 +63,5 @@ async def speak(text):
     stream.close()
     audio.terminate()
 
-#listen()
+def main():
+    asyncio.run(listen())

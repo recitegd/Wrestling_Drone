@@ -1,13 +1,14 @@
 import cv2
 import numpy as np
 import mediapipe as mp
-import camera
+import camera_handler
 import json
 import time
 import os
 import math
 import threading
 import sys
+from threading import Thread
 from collections import deque
 from datetime import datetime
 
@@ -108,18 +109,13 @@ def extract_positions():
 
 
 def construct_prompt(angles, positions):
-    #also add further instruction like: what am i doing wrong here, give detailed, give quick, etc.
-    #this first one should be given when first talking to the ai
-    parts = ["Follow these instructions for every prompt given to you. You are a master folkstyle wrestling coach and you need to give instructions and tips to positions you see based on joint angles (degrees) given to you and questions that you may be asked. You also may need to answer questions.\n"]
-    parts.append("What am I doing wrong here?\n")
-    parts.append("Keep this response short.\n")
+    parts = []
     parts.append("These are the angles for the following joints:\n")
 
     for joint, angle in angles.items():
         parts.append(f"{joint}: {angle}\n")
 
     parts.append("These are the relative positions for the following joints:\n")
-    print(positions)
     for joint, position in positions.items():
         parts.append(f"{joint}: {position}\n")
 
@@ -172,7 +168,7 @@ def camera_stream_thread():
     global frame_results, running
     frame = None
     previous_frame = None
-    with camera.create_mediapipe_camera() as camera:
+    with camera_handler.create_mediapipe_camera() as camera:
         while running:
             previous_frame = frame
             frame = camera.get_frame()
@@ -191,22 +187,14 @@ def camera_stream_thread():
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 end_program()
 
-def send_requests_thread():
-    global frame_results, running
-    time.sleep(5)
-    while running:
-        time.sleep(5)
+class MediaPipeHandler:
+    def create_request(self):
         with frame_lock:
             if frame_results and frame_results.pose_landmarks:
-                construct_prompt(extract_angles(), extract_positions())
+                return construct_prompt(extract_angles(), extract_positions())
+            else: return False
 
 
-threading.Thread(target=camera_stream_thread, daemon=True).start()
-threading.Thread(target=send_requests_thread, daemon=True).start()
-threading.Thread(target=watch_feed_thread, daemon=True).start()
-
-try:
-    while True:
-        time.sleep(0.5)
-except KeyboardInterrupt:
-    end_program()
+def start_threads():
+    Thread(target=camera_stream_thread, daemon=True).start()
+    Thread(target=watch_feed_thread, daemon=True).start()
