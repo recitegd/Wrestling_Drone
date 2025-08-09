@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import mediapipe as mp
-import Camera
+import camera
 import json
 import time
 import os
@@ -172,7 +172,7 @@ def camera_stream_thread():
     global frame_results, running
     frame = None
     previous_frame = None
-    with Camera.create_mediapipe_camera() as camera:
+    with camera.create_mediapipe_camera() as camera:
         while running:
             previous_frame = frame
             frame = camera.get_frame()
@@ -186,7 +186,7 @@ def camera_stream_thread():
                 if frame_results.pose_landmarks:
                     mp_draw.draw_landmarks(display_frame, frame_results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
-                cv2.imshow("Camera", display_frame)
+                cv2.imshow("camera", display_frame)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 end_program()
@@ -198,7 +198,7 @@ def send_requests_thread():
         time.sleep(5)
         with frame_lock:
             if frame_results and frame_results.pose_landmarks:
-                print(construct_prompt(extract_angles(), extract_positions()))
+                construct_prompt(extract_angles(), extract_positions())
 
 
 threading.Thread(target=camera_stream_thread, daemon=True).start()
