@@ -1,18 +1,33 @@
 import requests
+import os
+import asyncio
 
-ENDPOINT = "http://localhost:11434/api/generate"
-MODEL = "gpt-oss:20b"
-CONTEXT = "You are a master folkstyle wrestling coach and you need to give instructions and tips to positions you see based on joint angles (degrees) given to you and questions that you may be asked. You also may need to answer questions. Keep your response very short, within a sentence to three sentences. Reply quickly. Reply in a way that makes sense if read out loud.\n"
+ENDPOINT ="https://api.openai.com/v1/chat/completions"
+MODEL = "gpt-5.4-mini"
+CONTEXT = "You are a master folkstyle wrestling coach and you need to give instructions and tips to positions you see based on joint angles in degrees given to you and questions that you may be asked. Keep your response very short, within a few phrases. Also, please reply quickly.\n"
+
+headers = {
+    "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
+    "Content-Type": "application/json"
+}
 
 class AiHandler:
     async def query(self, prompt):
         payload = {
             "model": MODEL,
-            "prompt": CONTEXT + prompt,
-            "stream": False
+            "messages": [
+                    {"role": "system", "content": CONTEXT},
+                    {"role": "user", "content": prompt}
+                ]
         }
 
-        response = requests.post(ENDPOINT, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("response", "")
+        try:
+            response = requests.post(ENDPOINT, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            print(CONTEXT + "\n" + prompt)
+            print(data["choices"][0]["message"]["content"])
+            return data["choices"][0]["message"]["content"]
+        except requests.exceptions.HTTPError as e:
+            print("HTTP error:", e)
+            print("Response text:", response.text)

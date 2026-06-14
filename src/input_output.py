@@ -7,40 +7,66 @@ import pyaudio
 import io
 from pydub import AudioSegment
 
-AudioSegment.converter = "ffmpeg"    # or full path if you want
+AudioSegment.converter = "ffmpeg"    # or full path 
 AudioSegment.ffprobe = "ffprobe"
 
 recognizer = sr.Recognizer()
 listen_and_speak = True
 VOICE = "en-US-AndrewNeural"
+NAME = "assistant"
 api = AiHandler()
 mp_handler = MediaPipeHandler()
 
 async def listen():
     while listen_and_speak:
-        response = ""
         with sr.Microphone() as source:
             print("Calibrating mic...")
             recognizer.adjust_for_ambient_noise(source)
             print("Listening...")
-            audio = recognizer.listen(source)
-
             try:
+                audio = recognizer.listen(source, timeout=300, phrase_time_limit=10)
+            except sr.WaitTimeoutError:
+                continue
+
+            text = ""
+            try:
+                text = recognizer.recognize_google(audio)
+            except sr.UnknownValueError: 
+                continue
+            if NAME.lower() in text.lower(): 
+                await speak("How may I help you?")
+                await listen_for_instructions()
+
+async def listen_for_instructions():
+    response = ""
+    with sr.Microphone() as source:
+        print("Listening for instructions...")
+        attempts = 0
+        while attempts < 3:
+            try:
+                audio = recognizer.listen(source, timeout=10, phrase_time_limit=10)
                 text = recognizer.recognize_google(audio)
                 prompt = mp_handler.create_request()
                 if not prompt:
                     await speak("I cannot see you right now.")
+                    attempts+=1
                     continue
                 text += prompt
                 response = await api.query(text)
                 await speak(response)
+                return
             except sr.UnknownValueError:
-                response = "Could not recognize speech."
+                recognizer.adjust_for_ambient_noise(source)
+                response = "Sorry, I didn't get what you said."
+                attempts+=1
                 await speak(response)
             except sr.RequestError as e:
                 response = f"Could not request results: {e}"
                 await speak(response)
                 print(response)
+            
+        if attempts >= 3: await speak("I couldn't process your request. Give me a moment, and try again.")
+
 
 #edge_tts produces mp3, pyaudio needs pcm, so there's a conversion
 async def speak(text):

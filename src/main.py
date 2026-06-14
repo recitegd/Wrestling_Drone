@@ -12,4 +12,5 @@ try:
     while True:
         time.sleep(0.5)
 except KeyboardInterrupt:
+    ai_handler.listen_and_speak = False
     media_pipe_handler.end_program()

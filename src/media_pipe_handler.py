@@ -3,7 +3,6 @@ import numpy as np
 import mediapipe as mp
 import camera_handler
 import json
-import time
 import os
 import math
 import threading
@@ -59,7 +58,7 @@ def get_joint_angle(a, b, c):
     
     angle_rad = np.arccos(cos_angle)
     angle_deg = np.degrees(angle_rad)
-    return angle_deg
+    return round(angle_deg, 3)
 
 
 def extract_angles():
@@ -78,7 +77,7 @@ def extract_angles():
         if size == 0: continue
         total = 0
         for angle in angles_to_average: total += angle
-        joints[joint["name"]] = total / size
+        joints[joint["name"]] = round(total / size, 3)
 
     return joints
 
@@ -102,7 +101,7 @@ def extract_positions():
             total_x += x
             total_y += y
             total_z += z
-        joints[joint["name"]] = (total_x / size, total_y / size, total_z / size)
+        joints[joint["name"]] = (round(total_x / size, 3), round(total_y / size, 3), round(total_z / size, 3))
 
     return joints
 
@@ -154,13 +153,13 @@ def watch_feed_thread():
                 c = (jc.x, jc.y, jc.z)
                 angle = get_joint_angle(a, b, c)
                 if angle is not None and not math.isnan(angle):
-                    joint["frames"].append({"angle": angle, "timestamp": datetime.now()})
+                    joint["frames"].append({"angle": round(angle), "timestamp": datetime.now()})
             
             for joint_obj in position_cache:
                 joint = landmark[PoseLandmark[joint_obj["name"]]]
                 if joint.visibility < VISIBILITY_THRESHOLD: continue
                 if len(joint_obj["frames"]) >= MAX_CACHE_LEN: joint_obj["frames"].popleft()
-                joint_obj["frames"].append({"position": (joint.x, joint.y, joint.z), "timestamp": datetime.now()})
+                joint_obj["frames"].append({"position": (round(joint.x, 3), round(joint.y, 3), round(joint.z, 3)), "timestamp": datetime.now()})
             frame_updated.clear()
 
 
