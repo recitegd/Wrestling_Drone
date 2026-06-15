@@ -1,18 +1,15 @@
 import cv2
 import numpy as np
 import mediapipe as mp
-import camera_handler
 import json
 import os
 import math
 import threading
 import sys
-from threading import Thread
 from collections import deque
 from datetime import datetime
 
 mp_pose = mp.solutions.pose
-pose = mp_pose.Pose()
 mp_draw = mp.solutions.drawing_utils
 PoseLandmark = mp.solutions.pose.PoseLandmark
 
@@ -23,22 +20,46 @@ with open(file_path, "r") as f:
     joint_angles = json.load(f)["joint_angles"]
 
 
-angle_cache = []
-position_cache = []
-timestamp = datetime.now()
-for angle_name, joints_needed in joint_angles.items():
-    joint = {"name": angle_name, "frames": deque([])}
-    angle_cache.append(joint)
 with open(file_path, "r") as f:
-    joint_position = json.load(f)["joint_positions"]
-    for pos in joint_position:
-        position_cache.append({"name": pos, "frames": deque([])})
+    joint_positions = json.load(f)["joint_positions"]
 
 MAX_CACHE_LEN = 5
 VISIBILITY_THRESHOLD = 0.85
 MAX_FRAME_AGE_SECONDS = 2
+MAX_WRESTLERS = 2
+
+cache_lock = threading.Lock()
+running = True
+frame_results = {}
+poses = {}
+wrestler_caches = {}
+
+def create_angle_cache():
+    return [{"name": angle_name, "frames": deque([])} for angle_name in joint_angles]
+
+def create_position_cache():
+    return [{"name": pos, "frames": deque([])} for pos in joint_positions]
+
+def get_wrestler_cache(wrestler_id):
+    if wrestler_id not in wrestler_caches:
+        wrestler_caches[wrestler_id] = {
+            "label": f"Wrestler {wrestler_id}",
+            "angle_cache": create_angle_cache(),
+            "position_cache": create_position_cache(),
+            "last_seen": None,
+            "box": None,
+            "confidence": None,
+        }
+    return wrestler_caches[wrestler_id]
+
+def get_pose(wrestler_id):
+    if wrestler_id not in poses:
+        poses[wrestler_id] = mp_pose.Pose()
+    return poses[wrestler_id]
 
 def is_joint_angle_visible(joint, mp_result):
+    if mp_result.pose_landmarks is None:
+        return False
     landmark = mp_result.pose_landmarks.landmark
     points = joint_angles[joint["name"]]
     if landmark[PoseLandmark[points[0]]].visibility > VISIBILITY_THRESHOLD and landmark[PoseLandmark[points[1]]].visibility > VISIBILITY_THRESHOLD and landmark[PoseLandmark[points[2]]].visibility > VISIBILITY_THRESHOLD:
@@ -60,8 +81,79 @@ def get_joint_angle(a, b, c):
     angle_deg = np.degrees(angle_rad)
     return round(angle_deg, 3)
 
+def record_pose_result(wrestler_id, result, label=None, box=None, confidence=None):
+    if result.pose_landmarks is None:
+        return
 
-def extract_angles():
+    now = datetime.now()
+    cache = get_wrestler_cache(wrestler_id)
+    cache["label"] = label or cache["label"]
+    cache["last_seen"] = now
+    cache["box"] = box
+    cache["confidence"] = confidence
+    frame_results[wrestler_id] = result
+
+    landmark = result.pose_landmarks.landmark
+    for joint in cache["angle_cache"]:
+        if not is_joint_angle_visible(joint, result):
+            continue
+        if len(joint["frames"]) >= MAX_CACHE_LEN:
+            joint["frames"].popleft()
+
+        points = joint_angles[joint["name"]]
+        ja = landmark[PoseLandmark[points[0]]]
+        jb = landmark[PoseLandmark[points[1]]]
+        jc = landmark[PoseLandmark[points[2]]]
+        a = (ja.x, ja.y, ja.z)
+        b = (jb.x, jb.y, jb.z)
+        c = (jc.x, jc.y, jc.z)
+        angle = get_joint_angle(a, b, c)
+        if angle is not None and not math.isnan(angle):
+            joint["frames"].append({"angle": round(angle), "timestamp": now})
+
+    for joint_obj in cache["position_cache"]:
+        joint = landmark[PoseLandmark[joint_obj["name"]]]
+        if joint.visibility < VISIBILITY_THRESHOLD:
+            continue
+        if len(joint_obj["frames"]) >= MAX_CACHE_LEN:
+            joint_obj["frames"].popleft()
+        joint_obj["frames"].append({
+            "position": (round(joint.x, 3), round(joint.y, 3), round(joint.z, 3)),
+            "timestamp": now,
+        })
+
+def process_wrestler_frames(wrestler_frames):
+    with cache_lock:
+        for wrestler in wrestler_frames[:MAX_WRESTLERS]:
+            wrestler_id = wrestler["id"]
+            crop = wrestler["frame"]
+            if crop is None or crop.size == 0:
+                continue
+
+            result = get_pose(wrestler_id).process(crop)
+            record_pose_result(
+                wrestler_id,
+                result,
+                label=wrestler.get("label"),
+                box=wrestler.get("box"),
+                confidence=wrestler.get("confidence"),
+            )
+
+def draw_pose_landmarks(display_frame, wrestler_frames):
+    with cache_lock:
+        for wrestler in wrestler_frames:
+            result = frame_results.get(wrestler["id"])
+            if result is None or result.pose_landmarks is None:
+                continue
+
+            x1, y1, x2, y2 = wrestler["box"]
+            display_crop = display_frame[y1:y2, x1:x2]
+            if display_crop.size == 0:
+                continue
+
+            mp_draw.draw_landmarks(display_crop, result.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+
+def extract_angles(angle_cache):
     joints = {}
 
     for joint in angle_cache:
@@ -81,7 +173,7 @@ def extract_angles():
 
     return joints
 
-def extract_positions():
+def extract_positions(position_cache):
     joints = {}
 
     for joint in position_cache:
@@ -105,95 +197,60 @@ def extract_positions():
 
     return joints
 
-
-
-def construct_prompt(angles, positions):
+def construct_prompt(wrestlers):
     parts = []
-    parts.append("These are the angles for the following joints:\n")
+    parts.append("\n\nCurrent mat vision data:\n")
+    parts.append("Each wrestler entry is separate. Joint angles are degrees. Positions are normalized crop coordinates (x, y, z), so compare posture within each wrestler more than exact mat distance.\n")
 
-    for joint, angle in angles.items():
-        parts.append(f"{joint}: {angle}\n")
+    for wrestler in wrestlers:
+        parts.append(f"\n{wrestler['label']}:\n")
+        if wrestler.get("confidence") is not None:
+            parts.append(f"detector_confidence: {round(float(wrestler['confidence']), 3)}\n")
 
-    parts.append("These are the relative positions for the following joints:\n")
-    for joint, position in positions.items():
-        parts.append(f"{joint}: {position}\n")
+        parts.append("joint_angles:\n")
+        for joint, angle in wrestler["angles"].items():
+            parts.append(f"- {joint}: {angle}\n")
+
+        parts.append("joint_positions:\n")
+        for joint, position in wrestler["positions"].items():
+            parts.append(f"- {joint}: {position}\n")
 
     prompt = "".join(parts)
     return prompt
-
-frame_lock = threading.Lock()
-frame_updated = threading.Event()
-running = True
-frame_results = None
 
 def end_program():
     global running
     running = False
     print("Stopping program...")
     cv2.destroyAllWindows()
+    for pose_instance in poses.values():
+        pose_instance.close()
     sys.exit()
-
-def watch_feed_thread():
-    global frame_results, running
-    while running:
-        frame_updated.wait()
-        with frame_lock:
-            if frame_results.pose_landmarks is None: continue
-            landmark = frame_results.pose_landmarks.landmark
-            for joint in angle_cache:
-                if not is_joint_angle_visible(joint, frame_results): continue
-                if len(joint["frames"]) >= MAX_CACHE_LEN: joint["frames"].popleft()
-
-                points = joint_angles[joint["name"]]
-                ja = landmark[PoseLandmark[points[0]]]
-                jb = landmark[PoseLandmark[points[1]]]
-                jc = landmark[PoseLandmark[points[2]]]
-                a = (ja.x, ja.y, ja.z)
-                b = (jb.x, jb.y, jb.z)
-                c = (jc.x, jc.y, jc.z)
-                angle = get_joint_angle(a, b, c)
-                if angle is not None and not math.isnan(angle):
-                    joint["frames"].append({"angle": round(angle), "timestamp": datetime.now()})
-            
-            for joint_obj in position_cache:
-                joint = landmark[PoseLandmark[joint_obj["name"]]]
-                if joint.visibility < VISIBILITY_THRESHOLD: continue
-                if len(joint_obj["frames"]) >= MAX_CACHE_LEN: joint_obj["frames"].popleft()
-                joint_obj["frames"].append({"position": (round(joint.x, 3), round(joint.y, 3), round(joint.z, 3)), "timestamp": datetime.now()})
-            frame_updated.clear()
-
-
-def camera_stream_thread():
-    global frame_results, running
-    frame = None
-    previous_frame = None
-    with camera_handler.create_mediapipe_camera() as camera:
-        while running:
-            previous_frame = frame
-            frame = camera.get_frame()
-            if frame is not None:
-                with frame_lock:
-                    frame_results = pose.process(frame)
-                if(not np.array_equal(previous_frame, frame)): frame_updated.set()
-
-                display_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-                if frame_results.pose_landmarks:
-                    mp_draw.draw_landmarks(display_frame, frame_results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
-
-                cv2.imshow("camera", display_frame)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                end_program()
 
 class MediaPipeHandler:
     def create_request(self):
-        with frame_lock:
-            if frame_results and frame_results.pose_landmarks:
-                return construct_prompt(extract_angles(), extract_positions())
-            else: return False
+        with cache_lock:
+            wrestlers = []
+            now = datetime.now()
+            for wrestler_id, cache in sorted(wrestler_caches.items()):
+                if cache["last_seen"] is None:
+                    continue
+                if (now - cache["last_seen"]).total_seconds() > MAX_FRAME_AGE_SECONDS:
+                    continue
 
+                angles = extract_angles(cache["angle_cache"])
+                positions = extract_positions(cache["position_cache"])
+                if not angles and not positions:
+                    continue
 
-def start_threads():
-    Thread(target=camera_stream_thread, daemon=True).start()
-    Thread(target=watch_feed_thread, daemon=True).start()
+                wrestlers.append({
+                    "id": wrestler_id,
+                    "label": cache["label"],
+                    "confidence": cache["confidence"],
+                    "angles": angles,
+                    "positions": positions,
+                })
+
+            if wrestlers:
+                return construct_prompt(wrestlers)
+            return False

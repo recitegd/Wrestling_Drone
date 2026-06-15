@@ -51,8 +51,8 @@ async def listen_for_instructions():
                     await speak("I cannot see you right now.")
                     attempts+=1
                     continue
-                text += prompt
-                response = await api.query(text)
+                request = f"Spoken question: {text}{prompt}"
+                response = await api.query(request)
                 await speak(response)
                 return
             except sr.UnknownValueError:
