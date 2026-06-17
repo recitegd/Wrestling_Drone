@@ -1,6 +1,6 @@
 from ultralytics import YOLO
 import cv2
-import camera_handler
+from camera import Camera
 import threading
 import media_pipe_handler
 import os
@@ -19,7 +19,7 @@ def camera_stream_thread():
     global frame_results, running
     frame = None
     setup_window()
-    with camera_handler.create_mediapipe_camera() as camera:
+    with Camera() as camera:
         while running:
             frame = camera.get_frame()
             if frame is not None:
